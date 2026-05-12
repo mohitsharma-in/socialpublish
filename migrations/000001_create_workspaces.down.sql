@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS workspaces;
+DROP EXTENSION IF EXISTS pgcrypto;
