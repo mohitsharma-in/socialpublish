@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/yourorg/socialpublish/internal/store"
-	"github.com/yourorg/socialpublish/internal/tenant"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/tenant"
 )
 
 // Authenticate validates bearer API keys.

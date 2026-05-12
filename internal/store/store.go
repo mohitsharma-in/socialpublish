@@ -87,7 +87,7 @@ func OpenDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 // New creates pgx-backed stores.
-func New(db *pgxpool.Pool) Stores {
+func New(db *pgxpool.Pool, tokenKey string) Stores {
 	return Stores{
 		Workspaces: &workspaceStore{db: db},
 		APIKeys:    &apiKeyStore{db: db},
@@ -96,6 +96,6 @@ func New(db *pgxpool.Pool) Stores {
 		Posts:      &postStore{db: db},
 		Analytics:  &analyticsStore{db: db},
 		Webhooks:   &webhookStore{db: db},
-		Tokens:     &tokenStore{db: db},
+		Tokens:     &tokenStore{db: db, key: []byte(tokenKey)},
 	}
 }

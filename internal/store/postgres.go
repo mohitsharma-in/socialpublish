@@ -2,8 +2,12 @@ package store
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,7 +103,16 @@ type mediaStore struct {
 
 // Get fetches media by ID.
 func (s *mediaStore) Get(ctx context.Context, mediaID string) (*Media, error) {
-	return nil, fmt.Errorf("get media %s: %w", mediaID, ErrNotImplemented)
+	const query = `SELECT id, workspace_id, status, media_type, original_key, mime_type, size_bytes, duration_ms, formats, thumbnail_key, error_message, created_at, updated_at FROM media WHERE id = @media_id`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"media_id": mediaID})
+	if err != nil {
+		return nil, fmt.Errorf("query media %s: %w", mediaID, err)
+	}
+	media, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Media])
+	if err != nil {
+		return nil, fmt.Errorf("scan media %s: %w", mediaID, err)
+	}
+	return &media, nil
 }
 
 // MarkReady records successful media processing.
@@ -130,12 +143,30 @@ type postStore struct {
 
 // Get fetches a post by ID.
 func (s *postStore) Get(ctx context.Context, postID string) (*Post, error) {
-	return nil, fmt.Errorf("get post %s: %w", postID, ErrNotImplemented)
+	const query = `SELECT id, workspace_id, author_id, caption, media_ids, scheduled_at, status, created_at, updated_at FROM posts WHERE id = @post_id`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"post_id": postID})
+	if err != nil {
+		return nil, fmt.Errorf("query post %s: %w", postID, err)
+	}
+	post, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Post])
+	if err != nil {
+		return nil, fmt.Errorf("scan post %s: %w", postID, err)
+	}
+	return &post, nil
 }
 
 // GetTarget fetches a post target by ID.
 func (s *postStore) GetTarget(ctx context.Context, targetID string) (*PostTarget, error) {
-	return nil, fmt.Errorf("get target %s: %w", targetID, ErrNotImplemented)
+	const query = `SELECT id, post_id, account_id, platform, format, config, status, platform_post_id, permalink, failure_reason, attempt_count, last_attempted_at, published_at FROM post_targets WHERE id = @target_id`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"target_id": targetID})
+	if err != nil {
+		return nil, fmt.Errorf("query post target %s: %w", targetID, err)
+	}
+	target, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[PostTarget])
+	if err != nil {
+		return nil, fmt.Errorf("scan post target %s: %w", targetID, err)
+	}
+	return &target, nil
 }
 
 // SetTargetFailed records target publish failure.
@@ -162,7 +193,22 @@ type analyticsStore struct {
 
 // Record records an analytics snapshot.
 func (s *analyticsStore) Record(ctx context.Context, snapshot AnalyticsSnapshot) error {
-	return fmt.Errorf("record analytics snapshot: %w", ErrNotImplemented)
+	metricsJSON, err := json.Marshal(snapshot.Metrics)
+	if err != nil {
+		return fmt.Errorf("marshal analytics metrics: %w", err)
+	}
+	const query = `INSERT INTO analytics_snapshots (workspace_id, account_id, post_id, platform_post_id, metrics, collected_at) VALUES (@workspace_id, @account_id, @post_id, @platform_post_id, @metrics, @collected_at)`
+	if _, err := s.db.Exec(ctx, query, pgx.NamedArgs{
+		"workspace_id":      snapshot.WorkspaceID,
+		"account_id":        snapshot.AccountID,
+		"post_id":           snapshot.PostID,
+		"platform_post_id":  snapshot.PlatformPostID,
+		"metrics":           metricsJSON,
+		"collected_at":      snapshot.CollectedAt,
+	}); err != nil {
+		return fmt.Errorf("record analytics snapshot: %w", err)
+	}
+	return nil
 }
 
 type webhookStore struct {
@@ -171,19 +217,96 @@ type webhookStore struct {
 
 // EnqueueDelivery stores or enqueues a webhook delivery.
 func (s *webhookStore) EnqueueDelivery(ctx context.Context, params WebhookDeliveryParams) error {
+	payloadJSON, err := json.Marshal(params.Payload)
+	if err != nil {
+		return fmt.Errorf("marshal webhook payload: %w", err)
+	}
+	const query = `INSERT INTO webhook_deliveries (endpoint_id, event_type, payload) SELECT id, @event_type, @payload FROM webhook_endpoints WHERE workspace_id = @workspace_id AND enabled = true`
+	result, err := s.db.Exec(ctx, query, pgx.NamedArgs{"workspace_id": params.WorkspaceID, "event_type": params.EventType, "payload": payloadJSON})
+	if err != nil {
+		return fmt.Errorf("enqueue webhook delivery: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("enqueue webhook delivery: no enabled endpoints for workspace %s", params.WorkspaceID)
+	}
 	return nil
 }
 
 type tokenStore struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	key []byte
 }
 
 // Decrypt returns a decrypted token.
 func (s *tokenStore) Decrypt(ctx context.Context, tokenID string) (string, error) {
-	return "", fmt.Errorf("decrypt token %s: %w", tokenID, ErrNotImplemented)
+	if len(s.key) != 32 {
+		return "", fmt.Errorf("decrypt token %s: invalid encryption key", tokenID)
+	}
+	const query = `SELECT ciphertext FROM encrypted_tokens WHERE id = @token_id`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"token_id": tokenID})
+	var ciphertext []byte
+	if err := row.Scan(&ciphertext); err != nil {
+		return "", fmt.Errorf("query encrypted token %s: %w", tokenID, err)
+	}
+	plaintext, err := decryptToken(s.key, ciphertext)
+	if err != nil {
+		return "", fmt.Errorf("decrypt token %s: %w", tokenID, err)
+	}
+	return plaintext, nil
 }
 
 // Save persists an encrypted token.
 func (s *tokenStore) Save(ctx context.Context, token string) (string, error) {
-	return "", fmt.Errorf("save token: %w", ErrNotImplemented)
+	if len(s.key) != 32 {
+		return "", fmt.Errorf("save token: invalid encryption key")
+	}
+	ciphertext, err := encryptToken(s.key, token)
+	if err != nil {
+		return "", fmt.Errorf("encrypt token: %w", err)
+	}
+	const query = `INSERT INTO encrypted_tokens (ciphertext) VALUES (@ciphertext) RETURNING id`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"ciphertext": ciphertext})
+	var tokenID string
+	if err := row.Scan(&tokenID); err != nil {
+		return "", fmt.Errorf("insert encrypted token: %w", err)
+	}
+	return tokenID, nil
+}
+
+func encryptToken(key []byte, token string) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, aead.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	ciphertext := aead.Seal(nonce, nonce, []byte(token), nil)
+	return ciphertext, nil
+}
+
+func decryptToken(key []byte, data []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := aead.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
 }

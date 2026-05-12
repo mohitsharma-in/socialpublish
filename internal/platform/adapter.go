@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // PublishRequest is the normalized input every adapter receives.

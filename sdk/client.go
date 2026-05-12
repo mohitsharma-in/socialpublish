@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourorg/socialpublish/sdk/services/account"
-	"github.com/yourorg/socialpublish/sdk/services/analytics"
-	"github.com/yourorg/socialpublish/sdk/services/media"
-	"github.com/yourorg/socialpublish/sdk/services/post"
-	"github.com/yourorg/socialpublish/sdk/services/schedule"
+	"github.com/mohitsharma-in/socialpublish/sdk/services/account"
+	"github.com/mohitsharma-in/socialpublish/sdk/services/analytics"
+	"github.com/mohitsharma-in/socialpublish/sdk/services/media"
+	"github.com/mohitsharma-in/socialpublish/sdk/services/post"
+	"github.com/mohitsharma-in/socialpublish/sdk/services/schedule"
 )
 
 const (

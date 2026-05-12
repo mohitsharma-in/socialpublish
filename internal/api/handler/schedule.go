@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // Schedule handles schedule routes.

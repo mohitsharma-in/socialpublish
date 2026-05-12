@@ -8,14 +8,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	appconfig "github.com/yourorg/socialpublish/internal/config"
-	"github.com/yourorg/socialpublish/internal/ffmpeg"
-	"github.com/yourorg/socialpublish/internal/platform"
-	"github.com/yourorg/socialpublish/internal/platform/instagram"
-	"github.com/yourorg/socialpublish/internal/platform/youtube"
-	"github.com/yourorg/socialpublish/internal/storage"
-	"github.com/yourorg/socialpublish/internal/store"
-	"github.com/yourorg/socialpublish/internal/worker"
+	appconfig "github.com/mohitsharma-in/socialpublish/internal/config"
+	"github.com/mohitsharma-in/socialpublish/internal/ffmpeg"
+	"github.com/mohitsharma-in/socialpublish/internal/platform"
+	"github.com/mohitsharma-in/socialpublish/internal/platform/instagram"
+	"github.com/mohitsharma-in/socialpublish/internal/platform/youtube"
+	"github.com/mohitsharma-in/socialpublish/internal/storage"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/worker"
 )
 
 func main() {
@@ -45,7 +45,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open object storage: %w", err)
 	}
-	stores := store.New(db)
+	stores := store.New(db, cfg.TokenEncryptionKey)
 	adapters := platform.NewRegistry(instagram.New(instagram.Config{}, nil), youtube.New(youtube.Config{}, nil))
 	pool := worker.New(cfg.RedisAddr, stores, obj, adapters, ffmpeg.New(ffmpeg.WithBinary(cfg.FFmpegBin)))
 	return pool.Run(ctx)

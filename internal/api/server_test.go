@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 func TestHealthRoute(t *testing.T) {

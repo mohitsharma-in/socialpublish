@@ -10,11 +10,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/yourorg/socialpublish/internal/api/handler"
-	"github.com/yourorg/socialpublish/internal/api/middleware"
-	"github.com/yourorg/socialpublish/internal/queue"
-	"github.com/yourorg/socialpublish/internal/storage"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/api/handler"
+	"github.com/mohitsharma-in/socialpublish/internal/api/middleware"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
+	"github.com/mohitsharma-in/socialpublish/internal/storage"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // Config holds all server configuration.

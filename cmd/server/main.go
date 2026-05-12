@@ -11,11 +11,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/yourorg/socialpublish/internal/api"
-	appconfig "github.com/yourorg/socialpublish/internal/config"
-	"github.com/yourorg/socialpublish/internal/queue"
-	"github.com/yourorg/socialpublish/internal/storage"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/api"
+	appconfig "github.com/mohitsharma-in/socialpublish/internal/config"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
+	"github.com/mohitsharma-in/socialpublish/internal/storage"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 func main() {
@@ -41,7 +41,7 @@ func run() error {
 	}
 	defer db.Close()
 
-	stores := store.New(db)
+	stores := store.New(db, cfg.TokenEncryptionKey)
 	q := queue.NewAsynq(cfg.RedisAddr)
 	defer q.Close()
 	obj, err := storage.NewS3(ctx, cfg.S3)

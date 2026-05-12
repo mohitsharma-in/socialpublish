@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/yourorg/socialpublish/internal/tenant"
+	"github.com/mohitsharma-in/socialpublish/internal/tenant"
 )
 
 // RateLimiter enforces per-workspace request budgets.

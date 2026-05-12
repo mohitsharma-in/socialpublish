@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/yourorg/socialpublish/internal/queue"
-	"github.com/yourorg/socialpublish/internal/storage"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
+	"github.com/mohitsharma-in/socialpublish/internal/storage"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // Media handles media routes.

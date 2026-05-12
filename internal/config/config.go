@@ -15,11 +15,12 @@ const (
 
 // Config holds runtime configuration.
 type Config struct {
-	ListenAddr  string
-	DatabaseURL string
-	RedisAddr   string
-	FFmpegBin   string
-	S3          S3Config
+	ListenAddr         string
+	DatabaseURL        string
+	RedisAddr          string
+	FFmpegBin          string
+	TokenEncryptionKey string
+	S3                 S3Config
 }
 
 // S3Config holds object storage configuration.
@@ -38,6 +39,7 @@ func Load() (Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisAddr:   getEnv("REDIS_ADDR", defaultRedisAddr),
 		FFmpegBin:   getEnv("FFMPEG_BIN", defaultFFmpegBin),
+		TokenEncryptionKey: os.Getenv("TOKEN_ENCRYPTION_KEY"),
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),
 			Endpoint:        os.Getenv("S3_ENDPOINT"),
@@ -48,6 +50,9 @@ func Load() (Config, error) {
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	}
+	if len(cfg.TokenEncryptionKey) != 32 {
+		return Config{}, fmt.Errorf("TOKEN_ENCRYPTION_KEY is required and must be exactly 32 bytes")
 	}
 	return cfg, nil
 }

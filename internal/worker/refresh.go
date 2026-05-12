@@ -7,8 +7,8 @@ import (
 
 	"github.com/hibiken/asynq"
 
-	"github.com/yourorg/socialpublish/internal/platform"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/platform"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // TokenRefreshPayload is serialized into token refresh jobs.

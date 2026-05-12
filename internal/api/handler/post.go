@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
-	"github.com/yourorg/socialpublish/internal/queue"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 // Post handles post routes.

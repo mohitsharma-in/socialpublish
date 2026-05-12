@@ -1,4 +1,4 @@
-module github.com/yourorg/socialpublish
+module github.com/mohitsharma-in/socialpublish
 
 go 1.22
 

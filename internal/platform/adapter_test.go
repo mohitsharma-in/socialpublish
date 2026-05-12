@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/yourorg/socialpublish/internal/platform"
-	"github.com/yourorg/socialpublish/internal/platform/instagram"
-	"github.com/yourorg/socialpublish/internal/platform/youtube"
-	"github.com/yourorg/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/platform"
+	"github.com/mohitsharma-in/socialpublish/internal/platform/instagram"
+	"github.com/mohitsharma-in/socialpublish/internal/platform/youtube"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
 func TestRegistryAndAdapterValidation(t *testing.T) {

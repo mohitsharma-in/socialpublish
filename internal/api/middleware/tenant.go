@@ -3,8 +3,8 @@ package middleware
 import (
 	"net/http"
 
-	"github.com/yourorg/socialpublish/internal/store"
-	"github.com/yourorg/socialpublish/internal/tenant"
+	"github.com/mohitsharma-in/socialpublish/internal/store"
+	"github.com/mohitsharma-in/socialpublish/internal/tenant"
 )
 
 // InjectTenant enriches context with workspace details.
