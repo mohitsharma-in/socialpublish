@@ -1,0 +1,10 @@
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - api/service.yaml
+  - api/deployment.yaml
+  - worker/deployment.yaml
+  - redis/statefulset.yaml
+  - postgres/statefulset.yaml
+  - ingress.yaml

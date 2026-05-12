@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: socialpublish-ingress
+  namespace: socialpublish
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: socialpublish.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: socialpublish-api
+                port:
+                  number: 8080

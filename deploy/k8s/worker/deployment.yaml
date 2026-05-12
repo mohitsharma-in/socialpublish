@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: socialpublish-worker
+  namespace: socialpublish
+  labels:
+    app: socialpublish-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: socialpublish-worker
+  template:
+    metadata:
+      labels:
+        app: socialpublish-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/yourorg/socialpublish:worker-latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: socialpublish-secrets
+                  key: database-url
+            - name: REDIS_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: socialpublish-config
+                  key: REDIS_ADDR
+            - name: FFMPEG_BIN
+              valueFrom:
+                configMapKeyRef:
+                  name: socialpublish-config
+                  key: FFMPEG_BIN
+            - name: S3_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: socialpublish-config
+                  key: S3_REGION
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: socialpublish-config
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: socialpublish-config
+                  key: S3_BUCKET
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: socialpublish-secrets
+                  key: s3-access-key-id
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: socialpublish-secrets
+                  key: s3-secret-access-key

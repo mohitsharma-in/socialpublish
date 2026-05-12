@@ -1,1 +1,18 @@
+# Go build cache
 .gocache/
+
+# Build output
+bin/
+*.exe
+*.out
+*.test
+
+# Go module download cache
+/pkg/mod
+
+# IDE and editor config
+.vscode/
+
+# Environment files
+.env
+.env.*
