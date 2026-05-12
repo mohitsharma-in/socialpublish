@@ -148,3 +148,32 @@ type Page struct {
 	HasMore    bool    `json:"has_more"`
 	Total      int     `json:"total"`
 }
+
+// GetItems returns the page items.
+func (p *Page) GetItems() []*Post { return p.Items }
+
+// GetNextCursor returns the next page cursor.
+func (p *Page) GetNextCursor() string { return p.NextCursor }
+
+// GetHasMore reports whether another page is available.
+func (p *Page) GetHasMore() bool { return p.HasMore }
+
+// IsFullyPublished reports whether every target has succeeded.
+func (p *Post) IsFullyPublished() bool {
+	for i := range p.Targets {
+		if p.Targets[i].Status != StatusPublished {
+			return false
+		}
+	}
+	return len(p.Targets) > 0
+}
+
+// TargetFor returns a pointer to the status of the given platform, or nil.
+func (p *Post) TargetFor(platform Platform) *TargetStatus {
+	for i := range p.Targets {
+		if p.Targets[i].Platform == platform {
+			return &p.Targets[i]
+		}
+	}
+	return nil
+}

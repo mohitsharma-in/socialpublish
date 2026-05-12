@@ -52,3 +52,12 @@ type Page struct {
 	HasMore    bool       `json:"has_more"`
 	Total      int        `json:"total"`
 }
+
+// GetItems returns the page items.
+func (p *Page) GetItems() []*Account { return p.Items }
+
+// GetNextCursor returns the next page cursor.
+func (p *Page) GetNextCursor() string { return p.NextCursor }
+
+// GetHasMore reports whether another page is available.
+func (p *Page) GetHasMore() bool { return p.HasMore }
