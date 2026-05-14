@@ -24,6 +24,8 @@ type Config struct {
 	WriteTimeout    time.Duration
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+	// ReadinessCheck is optional. When set, GET /readyz returns 503 if it returns an error.
+	ReadinessCheck func(context.Context) error
 }
 
 // Server wraps the HTTP server with dependencies.
@@ -34,21 +36,22 @@ type Server struct {
 }
 
 // New assembles the server.
-func New(cfg Config, stores store.Stores, q queue.Queue, obj storage.ObjectStorage) *Server {
+func New(cfg Config, stores store.Stores, q queue.Queue, obj storage.ObjectStorage, limiter middleware.RateLimiter) *Server {
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(middleware.RequestID)
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Recoverer)
 	r.Use(middleware.Logger)
+	r.Use(middleware.CORS)
 
 	r.Get("/health", handler.Health)
-	r.Get("/readyz", handler.Readyz(stores))
+	r.Get("/readyz", handler.Readyz(cfg.ReadinessCheck))
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.Authenticate(stores.APIKeys))
 		r.Use(middleware.InjectTenant(stores.Workspaces))
-		r.Use(middleware.RateLimit(stores.Workspaces))
+		r.Use(middleware.RateLimit(limiter))
 
 		r.Route("/accounts", func(r chi.Router) {
 			ah := handler.NewAccount(stores.Accounts, stores.Tokens)
@@ -132,9 +135,10 @@ func (s *Server) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
-	shutCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
+	// Parent ctx is already cancelled; use an independent timeout for graceful shutdown.
+	shutCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout) //nolint:contextcheck
 	defer cancel()
-	if err := s.http.Shutdown(shutCtx); err != nil {
+	if err := s.http.Shutdown(shutCtx); err != nil { //nolint:contextcheck // shutCtx is an independent deadline after parent ctx is cancelled
 		return err
 	}
 	return nil

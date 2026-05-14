@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/mohitsharma-in/socialpublish/internal/store"
 	"github.com/mohitsharma-in/socialpublish/internal/tenant"
@@ -25,7 +26,11 @@ func Authenticate(keys store.APIKeyStore) func(http.Handler) http.Handler {
 				http.Error(w, `{"code":"unauthorized","message":"invalid API key"}`, http.StatusUnauthorized)
 				return
 			}
-			_ = keys.TouchLastUsed(r.Context(), key.ID)
+			if key.ExpiresAt != nil && key.ExpiresAt.Before(time.Now()) {
+				http.Error(w, `{"code":"unauthorized","message":"API key expired"}`, http.StatusUnauthorized)
+				return
+			}
+			_ = keys.TouchLastUsed(r.Context(), key.ID) //nolint:errcheck // best-effort last_used update
 			ctx := tenant.WithWorkspace(r.Context(), tenant.Workspace{ID: key.WorkspaceID, Plan: "free"})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
