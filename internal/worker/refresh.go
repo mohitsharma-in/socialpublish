@@ -42,8 +42,12 @@ func (h *tokenRefreshHandler) ProcessTask(ctx context.Context, task *asynq.Task)
 	if err != nil {
 		return fmt.Errorf("refresh token for account %s: %w", payload.AccountID, err)
 	}
-	if _, err := h.tokens.Save(ctx, token.AccessToken); err != nil {
+	tokenID, err := h.tokens.Save(ctx, token.AccessToken)
+	if err != nil {
 		return fmt.Errorf("save refreshed token for account %s: %w", payload.AccountID, err)
+	}
+	if err := h.accounts.UpdateToken(ctx, payload.AccountID, tokenID, token.ExpiresAt); err != nil {
+		return fmt.Errorf("update account token %s: %w", payload.AccountID, err)
 	}
 	return nil
 }

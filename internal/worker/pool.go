@@ -53,7 +53,7 @@ func New(redisAddr string, stores store.Stores, obj storage.ObjectStorage, adapt
 	mux.Handle(TaskPublish, NewPublishHandler(stores.Posts, stores.Accounts, stores.Tokens, adapters, stores.Webhooks))
 	mux.Handle(TaskTokenRefresh, NewTokenRefreshHandler(stores.Accounts, stores.Tokens, adapters))
 	mux.Handle(TaskAnalyticsPoll, NewAnalyticsHandler(stores.Analytics, stores.Accounts, stores.Tokens, adapters))
-	mux.Handle(TaskWebhookDeliver, NewWebhookDeliverHandler(stores.Webhooks))
+	mux.Handle(TaskWebhookDeliver, NewWebhookDeliverHandler(stores.Webhooks, stores.Tokens))
 
 	return &Pool{server: srv, mux: mux}
 }
