@@ -9,9 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/mohitsharma-in/socialpublish/internal/api"
+	"github.com/mohitsharma-in/socialpublish/internal/api/middleware"
 	appconfig "github.com/mohitsharma-in/socialpublish/internal/config"
 	"github.com/mohitsharma-in/socialpublish/internal/queue"
 	"github.com/mohitsharma-in/socialpublish/internal/storage"
@@ -49,13 +51,20 @@ func run() error {
 		return fmt.Errorf("open object storage: %w", err)
 	}
 
+	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	defer rdb.Close()
+	limiter := middleware.NewRedisRateLimiter(rdb)
+
 	srv := api.New(api.Config{
 		ListenAddr:      cfg.ListenAddr,
 		ReadTimeout:     5 * time.Second,
 		WriteTimeout:    30 * time.Second,
 		IdleTimeout:     120 * time.Second,
 		ShutdownTimeout: 30 * time.Second,
-	}, stores, q, obj)
+		ReadinessCheck: func(ctx context.Context) error {
+			return db.Ping(ctx)
+		},
+	}, stores, q, obj, limiter)
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {

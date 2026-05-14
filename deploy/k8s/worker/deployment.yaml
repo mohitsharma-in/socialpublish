@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: ghcr.io/yourorg/socialpublish:worker-latest
+          image: ghcr.io/mohitsharma-in/socialpublish:worker-latest
           imagePullPolicy: Always
           env:
             - name: DATABASE_URL

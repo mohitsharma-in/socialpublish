@@ -35,10 +35,10 @@ type S3Config struct {
 // Load reads configuration from environment variables.
 func Load() (Config, error) {
 	cfg := Config{
-		ListenAddr:  getEnv("LISTEN_ADDR", defaultListenAddr),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		RedisAddr:   getEnv("REDIS_ADDR", defaultRedisAddr),
-		FFmpegBin:   getEnv("FFMPEG_BIN", defaultFFmpegBin),
+		ListenAddr:         getEnv("LISTEN_ADDR", defaultListenAddr),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		RedisAddr:          getEnv("REDIS_ADDR", defaultRedisAddr),
+		FFmpegBin:          getEnv("FFMPEG_BIN", defaultFFmpegBin),
 		TokenEncryptionKey: os.Getenv("TOKEN_ENCRYPTION_KEY"),
 		S3: S3Config{
 			Region:          os.Getenv("S3_REGION"),

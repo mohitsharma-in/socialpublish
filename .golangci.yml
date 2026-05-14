@@ -1,0 +1,45 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - godot
+    - misspell
+    - noctx
+    - testifylint
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    godot:
+      scope: all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: cmd/
+        text: defer.*Close
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

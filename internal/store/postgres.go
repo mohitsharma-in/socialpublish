@@ -32,11 +32,6 @@ func (s *workspaceStore) Get(ctx context.Context, workspaceID string) (*Workspac
 	return &ws, nil
 }
 
-// Allow reports whether a workspace is within its rate limit.
-func (s *workspaceStore) Allow(ctx context.Context, workspaceID string, limit int) (int, time.Time, bool) {
-	reset := time.Now().Add(time.Minute).Truncate(time.Minute)
-	return limit, reset, true
-}
 
 type apiKeyStore struct {
 	db *pgxpool.Pool
@@ -97,6 +92,39 @@ func (s *accountStore) List(ctx context.Context, workspaceID string) ([]Account,
 	return accounts, nil
 }
 
+// Create inserts a new account.
+func (s *accountStore) Create(ctx context.Context, workspaceID string, account *Account) error {
+	const query = `INSERT INTO accounts (workspace_id, platform, platform_user_id, display_name, avatar_url, token_id, token_expires_at) VALUES (@workspace_id, @platform, @platform_user_id, @display_name, @avatar_url, @token_id, @token_expires_at) RETURNING id, created_at, updated_at`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{
+		"workspace_id": workspaceID, "platform": account.Platform, "platform_user_id": account.PlatformUserID,
+		"display_name": account.DisplayName, "avatar_url": account.AvatarURL, "token_id": account.TokenID, "token_expires_at": account.TokenExpiresAt,
+	})
+	return row.Scan(&account.ID, &account.CreatedAt, &account.UpdatedAt)
+}
+
+// Delete removes an account.
+func (s *accountStore) Delete(ctx context.Context, accountID string) error {
+	const query = `DELETE FROM accounts WHERE id = @account_id`
+	result, err := s.db.Exec(ctx, query, pgx.NamedArgs{"account_id": accountID})
+	if err != nil {
+		return fmt.Errorf("delete account %s: %w", accountID, err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("account %s not found", accountID)
+	}
+	return nil
+}
+
+// UpdateToken updates the token reference on an account.
+func (s *accountStore) UpdateToken(ctx context.Context, accountID string, tokenID string, expiresAt *time.Time) error {
+	const query = `UPDATE accounts SET token_id = @token_id, token_expires_at = @expires_at, token_healthy = true, updated_at = now() WHERE id = @account_id`
+	_, err := s.db.Exec(ctx, query, pgx.NamedArgs{"account_id": accountID, "token_id": tokenID, "expires_at": expiresAt})
+	if err != nil {
+		return fmt.Errorf("update token for account %s: %w", accountID, err)
+	}
+	return nil
+}
+
 type mediaStore struct {
 	db *pgxpool.Pool
 }
@@ -115,25 +143,56 @@ func (s *mediaStore) Get(ctx context.Context, mediaID string) (*Media, error) {
 	return &media, nil
 }
 
+// List lists media for a workspace with cursor pagination.
+func (s *mediaStore) List(ctx context.Context, workspaceID string, limit int, cursor string) ([]Media, string, error) {
+	if limit <= 0 { limit = 20 }
+	const query = `SELECT id, workspace_id, status, media_type, original_key, mime_type, size_bytes, duration_ms, formats, thumbnail_key, error_message, created_at, updated_at FROM media WHERE workspace_id = @workspace_id AND (@cursor = '' OR id::text < @cursor) ORDER BY created_at DESC LIMIT @lim`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "cursor": cursor, "lim": limit + 1})
+	if err != nil { return nil, "", fmt.Errorf("list media: %w", err) }
+	items, err := pgx.CollectRows(rows, pgx.RowToStructByName[Media])
+	if err != nil { return nil, "", fmt.Errorf("scan media: %w", err) }
+	var next string
+	if len(items) > limit { next = items[limit-1].ID; items = items[:limit] }
+	return items, next, nil
+}
+
+// Create inserts a new media record.
+func (s *mediaStore) Create(ctx context.Context, m *Media) error {
+	const query = `INSERT INTO media (workspace_id, status, media_type, original_key, mime_type, size_bytes) VALUES (@workspace_id, @status, @media_type, @original_key, @mime_type, @size_bytes) RETURNING id, created_at, updated_at`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"workspace_id": m.WorkspaceID, "status": m.Status, "media_type": m.MediaType, "original_key": m.OriginalKey, "mime_type": m.MimeType, "size_bytes": m.SizeBytes})
+	return row.Scan(&m.ID, &m.CreatedAt, &m.UpdatedAt)
+}
+
+// Delete removes a media record.
+func (s *mediaStore) Delete(ctx context.Context, mediaID string) error {
+	result, err := s.db.Exec(ctx, `DELETE FROM media WHERE id = @media_id`, pgx.NamedArgs{"media_id": mediaID})
+	if err != nil { return fmt.Errorf("delete media %s: %w", mediaID, err) }
+	if result.RowsAffected() == 0 { return fmt.Errorf("media %s not found", mediaID) }
+	return nil
+}
+
 // MarkReady records successful media processing.
 func (s *mediaStore) MarkReady(ctx context.Context, mediaID string, formats map[string]any, thumbnailKey string) error {
 	formatsJSON, err := json.Marshal(formats)
-	if err != nil {
-		return fmt.Errorf("marshal media formats: %w", err)
-	}
+	if err != nil { return fmt.Errorf("marshal media formats: %w", err) }
 	const query = `UPDATE media SET status = 'ready', formats = @formats, thumbnail_key = @thumbnail_key, updated_at = now() WHERE id = @media_id`
-	if _, err := s.db.Exec(ctx, query, pgx.NamedArgs{"media_id": mediaID, "formats": formatsJSON, "thumbnail_key": thumbnailKey}); err != nil {
-		return fmt.Errorf("mark media %s ready: %w", mediaID, err)
-	}
+	_, err = s.db.Exec(ctx, query, pgx.NamedArgs{"media_id": mediaID, "formats": formatsJSON, "thumbnail_key": thumbnailKey})
+	if err != nil { return fmt.Errorf("mark media %s ready: %w", mediaID, err) }
 	return nil
 }
 
 // MarkFailed records media processing failure.
 func (s *mediaStore) MarkFailed(ctx context.Context, mediaID string, reason string) error {
 	const query = `UPDATE media SET status = 'failed', error_message = @reason, updated_at = now() WHERE id = @media_id`
-	if _, err := s.db.Exec(ctx, query, pgx.NamedArgs{"media_id": mediaID, "reason": reason}); err != nil {
-		return fmt.Errorf("mark media %s failed: %w", mediaID, err)
-	}
+	_, err := s.db.Exec(ctx, query, pgx.NamedArgs{"media_id": mediaID, "reason": reason})
+	if err != nil { return fmt.Errorf("mark media %s failed: %w", mediaID, err) }
+	return nil
+}
+
+// SetThumbnail updates the thumbnail key for a media record.
+func (s *mediaStore) SetThumbnail(ctx context.Context, mediaID string, thumbnailKey string) error {
+	_, err := s.db.Exec(ctx, `UPDATE media SET thumbnail_key = @key, updated_at = now() WHERE id = @id`, pgx.NamedArgs{"id": mediaID, "key": thumbnailKey})
+	if err != nil { return fmt.Errorf("set thumbnail media %s: %w", mediaID, err) }
 	return nil
 }
 
@@ -143,16 +202,36 @@ type postStore struct {
 
 // Get fetches a post by ID.
 func (s *postStore) Get(ctx context.Context, postID string) (*Post, error) {
-	const query = `SELECT id, workspace_id, author_id, caption, media_ids, scheduled_at, status, created_at, updated_at FROM posts WHERE id = @post_id`
-	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"post_id": postID})
-	if err != nil {
-		return nil, fmt.Errorf("query post %s: %w", postID, err)
-	}
-	post, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[Post])
-	if err != nil {
+	// Columns match migrations/000006_create_posts.up.sql. uuid[] -> text[] for []string scan.
+	const query = `
+SELECT
+	id::text,
+	workspace_id::text,
+	status,
+	COALESCE((SELECT array_agg(u::text) FROM unnest(COALESCE(media_ids, ARRAY[]::uuid[])) AS u), ARRAY[]::text[]) AS media_ids,
+	scheduled_at,
+	published_at,
+	metadata,
+	created_at,
+	updated_at
+FROM posts
+WHERE id = @post_id::uuid`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"post_id": postID})
+	var p Post
+	if err := row.Scan(
+		&p.ID,
+		&p.WorkspaceID,
+		&p.Status,
+		&p.MediaIDs,
+		&p.ScheduledAt,
+		&p.PublishedAt,
+		&p.Metadata,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+	); err != nil {
 		return nil, fmt.Errorf("scan post %s: %w", postID, err)
 	}
-	return &post, nil
+	return &p, nil
 }
 
 // GetTarget fetches a post target by ID.
@@ -187,6 +266,88 @@ func (s *postStore) SetTargetPublished(ctx context.Context, targetID string, pla
 	return nil
 }
 
+// List lists posts for a workspace with cursor pagination.
+func (s *postStore) List(ctx context.Context, workspaceID string, limit int, cursor string) ([]Post, string, error) {
+	if limit <= 0 { limit = 20 }
+	const query = `SELECT id::text, workspace_id::text, status, COALESCE((SELECT array_agg(u::text) FROM unnest(COALESCE(media_ids, ARRAY[]::uuid[])) AS u), ARRAY[]::text[]) AS media_ids, scheduled_at, published_at, metadata, created_at, updated_at FROM posts WHERE workspace_id = @workspace_id::uuid AND (@cursor = '' OR id::text < @cursor) ORDER BY created_at DESC LIMIT @lim`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "cursor": cursor, "lim": limit + 1})
+	if err != nil { return nil, "", fmt.Errorf("list posts: %w", err) }
+	var items []Post
+	for rows.Next() {
+		var p Post
+		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Status, &p.MediaIDs, &p.ScheduledAt, &p.PublishedAt, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan post: %w", err)
+		}
+		items = append(items, p)
+	}
+	var next string
+	if len(items) > limit { next = items[limit-1].ID; items = items[:limit] }
+	return items, next, nil
+}
+
+// Create inserts a new post.
+func (s *postStore) Create(ctx context.Context, p *Post) error {
+	metaJSON, _ := json.Marshal(p.Metadata)
+	const query = `INSERT INTO posts (workspace_id, status, media_ids, scheduled_at, metadata) VALUES (@workspace_id::uuid, @status, @media_ids::uuid[], @scheduled_at, @metadata) RETURNING id::text, created_at, updated_at`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"workspace_id": p.WorkspaceID, "status": p.Status, "media_ids": p.MediaIDs, "scheduled_at": p.ScheduledAt, "metadata": metaJSON})
+	return row.Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
+}
+
+// Update patches post fields.
+func (s *postStore) Update(ctx context.Context, postID string, fields map[string]any) error {
+	metaJSON, _ := json.Marshal(fields)
+	_, err := s.db.Exec(ctx, `UPDATE posts SET metadata = metadata || @meta::jsonb, updated_at = now() WHERE id = @id::uuid`, pgx.NamedArgs{"id": postID, "meta": metaJSON})
+	if err != nil { return fmt.Errorf("update post %s: %w", postID, err) }
+	return nil
+}
+
+// Delete removes a post.
+func (s *postStore) Delete(ctx context.Context, postID string) error {
+	result, err := s.db.Exec(ctx, `DELETE FROM posts WHERE id = @id::uuid`, pgx.NamedArgs{"id": postID})
+	if err != nil { return fmt.Errorf("delete post %s: %w", postID, err) }
+	if result.RowsAffected() == 0 { return fmt.Errorf("post %s not found", postID) }
+	return nil
+}
+
+// SetStatus updates a post's status.
+func (s *postStore) SetStatus(ctx context.Context, postID string, status string) error {
+	_, err := s.db.Exec(ctx, `UPDATE posts SET status = @status, updated_at = now() WHERE id = @id::uuid`, pgx.NamedArgs{"id": postID, "status": status})
+	if err != nil { return fmt.Errorf("set post %s status: %w", postID, err) }
+	return nil
+}
+
+// ListTargets returns all targets for a post.
+func (s *postStore) ListTargets(ctx context.Context, postID string) ([]PostTarget, error) {
+	const query = `SELECT id, post_id, account_id, platform, format, config, status, platform_post_id, permalink, failure_reason, attempt_count, last_attempted_at, published_at FROM post_targets WHERE post_id = @post_id`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"post_id": postID})
+	if err != nil { return nil, fmt.Errorf("list targets for post %s: %w", postID, err) }
+	return pgx.CollectRows(rows, pgx.RowToStructByName[PostTarget])
+}
+
+// CreateTarget inserts a post target.
+func (s *postStore) CreateTarget(ctx context.Context, t *PostTarget) error {
+	configJSON, _ := json.Marshal(t.Config)
+	const query = `INSERT INTO post_targets (post_id, account_id, platform, format, config) VALUES (@post_id, @account_id, @platform, @format, @config) RETURNING id`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"post_id": t.PostID, "account_id": t.AccountID, "platform": t.Platform, "format": t.Format, "config": configJSON})
+	return row.Scan(&t.ID)
+}
+
+// ListScheduled lists scheduled posts in a time range.
+func (s *postStore) ListScheduled(ctx context.Context, workspaceID string, from time.Time, to time.Time) ([]Post, error) {
+	const query = `SELECT id::text, workspace_id::text, status, COALESCE((SELECT array_agg(u::text) FROM unnest(COALESCE(media_ids, ARRAY[]::uuid[])) AS u), ARRAY[]::text[]) AS media_ids, scheduled_at, published_at, metadata, created_at, updated_at FROM posts WHERE workspace_id = @workspace_id::uuid AND status = 'scheduled' AND scheduled_at >= @from AND scheduled_at <= @to ORDER BY scheduled_at`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID, "from": from, "to": to})
+	if err != nil { return nil, fmt.Errorf("list scheduled: %w", err) }
+	var items []Post
+	for rows.Next() {
+		var p Post
+		if err := rows.Scan(&p.ID, &p.WorkspaceID, &p.Status, &p.MediaIDs, &p.ScheduledAt, &p.PublishedAt, &p.Metadata, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan scheduled post: %w", err)
+		}
+		items = append(items, p)
+	}
+	return items, nil
+}
+
 type analyticsStore struct {
 	db *pgxpool.Pool
 }
@@ -194,43 +355,110 @@ type analyticsStore struct {
 // Record records an analytics snapshot.
 func (s *analyticsStore) Record(ctx context.Context, snapshot AnalyticsSnapshot) error {
 	metricsJSON, err := json.Marshal(snapshot.Metrics)
-	if err != nil {
-		return fmt.Errorf("marshal analytics metrics: %w", err)
-	}
+	if err != nil { return fmt.Errorf("marshal analytics metrics: %w", err) }
 	const query = `INSERT INTO analytics_snapshots (workspace_id, account_id, post_id, platform_post_id, metrics, collected_at) VALUES (@workspace_id, @account_id, @post_id, @platform_post_id, @metrics, @collected_at)`
-	if _, err := s.db.Exec(ctx, query, pgx.NamedArgs{
-		"workspace_id":      snapshot.WorkspaceID,
-		"account_id":        snapshot.AccountID,
-		"post_id":           snapshot.PostID,
-		"platform_post_id":  snapshot.PlatformPostID,
-		"metrics":           metricsJSON,
-		"collected_at":      snapshot.CollectedAt,
-	}); err != nil {
-		return fmt.Errorf("record analytics snapshot: %w", err)
-	}
+	_, err = s.db.Exec(ctx, query, pgx.NamedArgs{
+		"workspace_id": snapshot.WorkspaceID, "account_id": snapshot.AccountID,
+		"post_id": snapshot.PostID, "platform_post_id": snapshot.PlatformPostID,
+		"metrics": metricsJSON, "collected_at": snapshot.CollectedAt,
+	})
+	if err != nil { return fmt.Errorf("record analytics snapshot: %w", err) }
 	return nil
+}
+
+// GetPostMetrics returns the latest snapshot for a post.
+func (s *analyticsStore) GetPostMetrics(ctx context.Context, postID string) (*AnalyticsSnapshot, error) {
+	const query = `SELECT id, workspace_id, account_id, post_id, platform_post_id, metrics, collected_at FROM analytics_snapshots WHERE post_id = @post_id ORDER BY collected_at DESC LIMIT 1`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"post_id": postID})
+	if err != nil { return nil, fmt.Errorf("get post metrics: %w", err) }
+	snap, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[AnalyticsSnapshot])
+	if err != nil { return nil, fmt.Errorf("scan post metrics: %w", err) }
+	return &snap, nil
+}
+
+// GetAccountMetrics returns the latest snapshot for an account.
+func (s *analyticsStore) GetAccountMetrics(ctx context.Context, accountID string) (*AnalyticsSnapshot, error) {
+	const query = `SELECT id, workspace_id, account_id, post_id, platform_post_id, metrics, collected_at FROM analytics_snapshots WHERE account_id = @account_id ORDER BY collected_at DESC LIMIT 1`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"account_id": accountID})
+	if err != nil { return nil, fmt.Errorf("get account metrics: %w", err) }
+	snap, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[AnalyticsSnapshot])
+	if err != nil { return nil, fmt.Errorf("scan account metrics: %w", err) }
+	return &snap, nil
+}
+
+// GetSummary returns aggregated metrics for a workspace.
+func (s *analyticsStore) GetSummary(ctx context.Context, workspaceID string, from *time.Time, to *time.Time) (*AnalyticsSnapshot, error) {
+	const query = `SELECT COALESCE(id, '') AS id, workspace_id, COALESCE(account_id, '') AS account_id, COALESCE(post_id, '') AS post_id, '' AS platform_post_id, metrics, collected_at FROM analytics_snapshots WHERE workspace_id = @workspace_id ORDER BY collected_at DESC LIMIT 1`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID})
+	if err != nil { return nil, fmt.Errorf("get summary: %w", err) }
+	snap, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[AnalyticsSnapshot])
+	if err != nil { return nil, fmt.Errorf("scan summary: %w", err) }
+	return &snap, nil
 }
 
 type webhookStore struct {
 	db *pgxpool.Pool
 }
 
-// EnqueueDelivery stores or enqueues a webhook delivery.
-func (s *webhookStore) EnqueueDelivery(ctx context.Context, params WebhookDeliveryParams) error {
-	payloadJSON, err := json.Marshal(params.Payload)
-	if err != nil {
-		return fmt.Errorf("marshal webhook payload: %w", err)
-	}
-	const query = `INSERT INTO webhook_deliveries (endpoint_id, event_type, payload) SELECT id, @event_type, @payload FROM webhook_endpoints WHERE workspace_id = @workspace_id AND enabled = true`
-	result, err := s.db.Exec(ctx, query, pgx.NamedArgs{"workspace_id": params.WorkspaceID, "event_type": params.EventType, "payload": payloadJSON})
-	if err != nil {
-		return fmt.Errorf("enqueue webhook delivery: %w", err)
-	}
-	if result.RowsAffected() == 0 {
-		return fmt.Errorf("enqueue webhook delivery: no enabled endpoints for workspace %s", params.WorkspaceID)
-	}
+// Create inserts a webhook endpoint.
+func (s *webhookStore) Create(ctx context.Context, e *WebhookEndpoint) error {
+	const query = `INSERT INTO webhook_endpoints (workspace_id, url, secret_hash, secret_enc, events, enabled) VALUES (@workspace_id, @url, @secret_hash, @secret_enc, @events, @enabled) RETURNING id, created_at`
+	row := s.db.QueryRow(ctx, query, pgx.NamedArgs{"workspace_id": e.WorkspaceID, "url": e.URL, "secret_hash": e.SecretHash, "secret_enc": e.SecretEnc, "events": e.Events, "enabled": e.Enabled})
+	return row.Scan(&e.ID, &e.CreatedAt)
+}
+
+// List returns all webhook endpoints for a workspace.
+func (s *webhookStore) List(ctx context.Context, workspaceID string) ([]WebhookEndpoint, error) {
+	const query = `SELECT id, workspace_id, url, secret_hash, secret_enc, events, enabled, created_at FROM webhook_endpoints WHERE workspace_id = @workspace_id ORDER BY created_at DESC`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"workspace_id": workspaceID})
+	if err != nil { return nil, fmt.Errorf("list webhooks: %w", err) }
+	return pgx.CollectRows(rows, pgx.RowToStructByName[WebhookEndpoint])
+}
+
+// Get returns a single webhook endpoint.
+func (s *webhookStore) Get(ctx context.Context, endpointID string) (*WebhookEndpoint, error) {
+	const query = `SELECT id, workspace_id, url, secret_hash, secret_enc, events, enabled, created_at FROM webhook_endpoints WHERE id = @id`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"id": endpointID})
+	if err != nil { return nil, fmt.Errorf("get webhook: %w", err) }
+	ep, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByName[WebhookEndpoint])
+	if err != nil { return nil, fmt.Errorf("scan webhook: %w", err) }
+	return &ep, nil
+}
+
+// Delete removes a webhook endpoint.
+func (s *webhookStore) Delete(ctx context.Context, endpointID string) error {
+	result, err := s.db.Exec(ctx, `DELETE FROM webhook_endpoints WHERE id = @id`, pgx.NamedArgs{"id": endpointID})
+	if err != nil { return fmt.Errorf("delete webhook %s: %w", endpointID, err) }
+	if result.RowsAffected() == 0 { return fmt.Errorf("webhook %s not found", endpointID) }
 	return nil
 }
+
+// EnqueueDelivery stores a webhook delivery for all matching enabled endpoints.
+func (s *webhookStore) EnqueueDelivery(ctx context.Context, params WebhookDeliveryParams) error {
+	payloadJSON, err := json.Marshal(params.Payload)
+	if err != nil { return fmt.Errorf("marshal webhook payload: %w", err) }
+	const query = `INSERT INTO webhook_deliveries (endpoint_id, event_type, payload) SELECT id, @event_type, @payload FROM webhook_endpoints WHERE workspace_id = @workspace_id AND enabled = true`
+	_, err = s.db.Exec(ctx, query, pgx.NamedArgs{"workspace_id": params.WorkspaceID, "event_type": params.EventType, "payload": payloadJSON})
+	if err != nil { return fmt.Errorf("enqueue webhook delivery: %w", err) }
+	return nil
+}
+
+// ListPendingDeliveries returns undelivered webhook deliveries.
+func (s *webhookStore) ListPendingDeliveries(ctx context.Context, endpointID string, limit int) ([]WebhookDelivery, error) {
+	if limit <= 0 { limit = 10 }
+	const query = `SELECT id, endpoint_id, event_type, payload, response_status, attempt_count, delivered_at, next_retry_at FROM webhook_deliveries WHERE endpoint_id = @endpoint_id AND delivered_at IS NULL ORDER BY id LIMIT @lim`
+	rows, err := s.db.Query(ctx, query, pgx.NamedArgs{"endpoint_id": endpointID, "lim": limit})
+	if err != nil { return nil, fmt.Errorf("list pending deliveries: %w", err) }
+	return pgx.CollectRows(rows, pgx.RowToStructByName[WebhookDelivery])
+}
+
+// MarkDelivered records a successful webhook delivery.
+func (s *webhookStore) MarkDelivered(ctx context.Context, deliveryID string, statusCode int) error {
+	_, err := s.db.Exec(ctx, `UPDATE webhook_deliveries SET delivered_at = now(), response_status = @status, attempt_count = attempt_count + 1 WHERE id = @id`, pgx.NamedArgs{"id": deliveryID, "status": statusCode})
+	if err != nil { return fmt.Errorf("mark delivered %s: %w", deliveryID, err) }
+	return nil
+}
+
 
 type tokenStore struct {
 	db  *pgxpool.Pool

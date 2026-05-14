@@ -1,0 +1,26 @@
+# One-off migration job. Set a unique metadata.name per apply (e.g. append git SHA) to avoid conflicts.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: socialpublish-migrate
+  namespace: socialpublish
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/mohitsharma-in/socialpublish:migrate-latest
+          command: ["/app/migrate", "up"]
+          envFrom:
+            - secretRef:
+                name: socialpublish-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

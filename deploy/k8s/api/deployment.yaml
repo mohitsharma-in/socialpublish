@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: ghcr.io/yourorg/socialpublish:server-latest
+          image: ghcr.io/mohitsharma-in/socialpublish:server-latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080

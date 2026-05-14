@@ -4,6 +4,7 @@ resources:
   - secrets.yaml
   - api/service.yaml
   - api/deployment.yaml
+  - api/hpa.yaml
   - worker/deployment.yaml
   - redis/statefulset.yaml
   - postgres/statefulset.yaml

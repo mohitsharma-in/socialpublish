@@ -20,6 +20,9 @@ func RequestID(next http.Handler) http.Handler {
 
 // RequestIDFromContext extracts a request ID from context.
 func RequestIDFromContext(ctx context.Context) string {
-	requestID, _ := ctx.Value(requestIDKey{}).(string)
+	requestID, ok := ctx.Value(requestIDKey{}).(string)
+	if !ok {
+		return ""
+	}
 	return requestID
 }

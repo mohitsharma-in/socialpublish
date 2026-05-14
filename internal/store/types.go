@@ -115,3 +115,15 @@ type WebhookDeliveryParams struct {
 	EventType   string
 	Payload     map[string]any
 }
+
+// WebhookDelivery is a stored webhook delivery record.
+type WebhookDelivery struct {
+	ID             string
+	EndpointID     string
+	EventType      string
+	Payload        map[string]any
+	ResponseStatus *int
+	AttemptCount   int
+	DeliveredAt    *time.Time
+	NextRetryAt    *time.Time
+}

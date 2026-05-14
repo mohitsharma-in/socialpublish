@@ -37,7 +37,9 @@ func (h *transcodeHandler) ProcessTask(ctx context.Context, task *asynq.Task) er
 		return fmt.Errorf("%w: unmarshal transcode payload: %v", asynq.SkipRetry, err)
 	}
 	if err := h.ff.Transcode(ctx, payload.InputPath, payload.OutputPath, payload.Preset); err != nil {
-		_ = h.media.MarkFailed(ctx, payload.MediaID, err.Error())
+		if mErr := h.media.MarkFailed(ctx, payload.MediaID, err.Error()); mErr != nil {
+			return fmt.Errorf("transcode media %s: %w (mark failed: %v)", payload.MediaID, err, mErr)
+		}
 		return fmt.Errorf("transcode media %s: %w", payload.MediaID, err)
 	}
 	if err := h.media.MarkReady(ctx, payload.MediaID, map[string]any{payload.Preset.Name: payload.OutputPath}, ""); err != nil {

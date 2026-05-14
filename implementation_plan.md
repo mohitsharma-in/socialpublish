@@ -6,10 +6,50 @@
 
 ---
 
+## Repository status (living document)
+
+**Canonical module path:** `github.com/mohitsharma-in/socialpublish`. Code blocks below may still show `github.com/yourorg/socialpublish`; substitute the canonical path when copying.
+
+### Part 10 phased implementation (snapshot)
+
+| Phase | Status | Notes |
+|-------|--------|--------|
+| 1 Scaffold | Done | `go.mod`, migrations 000001–000009, tenant, types, SDK errors |
+| 2 HTTP transport + SDK client | Done | `sdk/transport.go` (plan sometimes references `sdk/internal/transport.go`; same role) |
+| 3 Post builder | Done | Builder + tests |
+| 4 Remaining SDK services | Partial | account, media, schedule, analytics, webhook present; some handlers stubbed |
+| 5 Store layer | Partial | pgx stores; testcontainers integration tests not wired |
+| 6 Platform adapters | Partial | Instagram/YouTube skeletons |
+| 7 FFmpeg | Done | presets + runner + tests |
+| 8 Workers | Partial | pool + handlers; production wiring depends on env |
+| 9 Handlers + middleware | Partial | routes match plan; several handlers return not implemented |
+| 10 Entrypoints + config | Done | `cmd/server`, `cmd/worker`, `cmd/migrate`, `internal/config` |
+| 11 Deployment | Partial | Kustomize base + HPA + migrate job template; Helm chart from plan not added |
+| CI | Partial | `.github/workflows/ci.yaml` runs fmt, vet, golangci-lint, tests (no Postgres/Redis services yet) |
+
+### Improvement backlog (prioritized)
+
+1. **Rate limiting:** `workspaceStore.Allow` is permissive; implement Redis-backed sliding window per middleware contract.
+2. **Handler completeness:** Replace `notImplemented` stubs with store-backed implementations where migrations exist.
+3. **CI parity with Part 9:** Add Postgres + Redis service containers and `DATABASE_URL` / `REDIS_ADDR` for `go test`, plus optional race/coverage gates.
+4. **Integration tests:** `testcontainers-go` is already a `require` in `go.mod` (v0.29.1); wire store/API smoke tests (plan phase 5 / 9).
+5. **Helm:** Add `deploy/helm/socialpublish` when multi-environment packaging is required.
+6. **Publish worker idempotency:** Adapter-level guards for duplicate publish on retry.
+
+### Code review fixes applied (2026-05-13)
+
+- **Posts SQL drift:** `postStore.Get` aligned with `000006_create_posts`; `media_ids` scanned via `uuid[]` → `text[]`.
+- **Readiness:** `/readyz` uses optional `ReadinessCheck` (server wires `db.Ping`); 503 + `{"status":"not_ready"}` on failure.
+- **AWS SDK v2 S3:** `credentials` module; `s3.NewPresignClient` + `WithPresignExpires`; custom endpoints via `s3.Options.BaseEndpoint`.
+- **Tooling & K8s:** `.golangci.yml`; `deploy/k8s/api/hpa.yaml`; `deploy/k8s/migrate-job.yaml` (use unique job name per apply); Makefile `IMAGE_BASE` default; deployment images default to `ghcr.io/mohitsharma-in/socialpublish:*`.
+- **Tests:** `internal/api` covers `/readyz` with and without `ReadinessCheck`, including 503 path.
+
+---
+
 ## Meta Instructions for Codex
 
 - Go version: **1.22** (use `range over integer`, `slices`, `maps` stdlib packages)
-- Module path: `github.com/yourorg/socialpublish`
+- Module path: `github.com/mohitsharma-in/socialpublish` (replace `yourorg` in generated snippets)
 - All errors wrapped with `%w`; never `errors.New` where context is available
 - No `panic` in library code; panics only in `main()` for unrecoverable startup failures
 - No `init()` doing real work — only stdlib registration (e.g. `pprof`)
@@ -2222,22 +2262,14 @@ Implement in this exact sequence. Each phase compiles and passes tests before th
 # go.mod — pin these exact major versions
 
 require (
-    # HTTP router
     github.com/go-chi/chi/v5          v5.0.12
-
-    # Database
     github.com/jackc/pgx/v5           v5.5.5
-
-    # Job queue
     github.com/hibiken/asynq          v0.24.1
-
-    # Redis client (used by asynq + rate limiter)
     github.com/redis/go-redis/v9      v9.5.1
-
-    # AWS SDK (for S3/R2)
-    github.com/aws/aws-sdk-go-v2              v1.26.1
+    github.com/aws/aws-sdk-go-v2              v1.32.4
     github.com/aws/aws-sdk-go-v2/config       v1.27.9
-    github.com/aws/aws-sdk-go-v2/service/s3   v1.53.1
+    github.com/aws/aws-sdk-go-v2/credentials  v1.17.10
+    github.com/aws/aws-sdk-go-v2/service/s3   v1.66.3
 
     # Migrations
     github.com/golang-migrate/migrate/v4      v4.17.1

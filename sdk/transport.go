@@ -116,7 +116,9 @@ func (t *transport) handleResponse(resp *http.Response, out any) error {
 
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 		if out == nil || resp.StatusCode == http.StatusNoContent {
-			_, _ = io.Copy(io.Discard, resp.Body)
+			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+				return fmt.Errorf("drain response body: %w", err)
+			}
 			return nil
 		}
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

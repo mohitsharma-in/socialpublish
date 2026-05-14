@@ -2,13 +2,13 @@ package socialpublish
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,13 +16,13 @@ func TestTransportInjectsAuthAndDecodesResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "Bearer sp_test_key", r.Header.Get(headerAuthorization))
-		require.Equal(t, "socialpublish-go/"+sdkVersion, r.Header.Get(headerUserAgent))
-		require.Equal(t, "/v1/posts", r.URL.Path)
-		require.Equal(t, "20", r.URL.Query().Get("limit"))
+		assert.Equal(t, "Bearer sp_test_key", r.Header.Get(headerAuthorization))
+		assert.Equal(t, "socialpublish-go/"+sdkVersion, r.Header.Get(headerUserAgent))
+		assert.Equal(t, "/v1/posts", r.URL.Path)
+		assert.Equal(t, "20", r.URL.Query().Get("limit"))
 		w.Header().Set("Content-Type", "application/json")
 		_, err := w.Write([]byte(`{"post_id":"post_123","status":"draft"}`))
-		require.NoError(t, err)
+		assert.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -47,12 +47,12 @@ func TestTransportRetriesRetryableStatus(t *testing.T) {
 		if attempts == 1 {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, err := w.Write([]byte(`{"code":"internal_error","message":"temporary"}`))
-			require.NoError(t, err)
+			assert.NoError(t, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, err := w.Write([]byte(`{"ok":true}`))
-		require.NoError(t, err)
+		assert.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -77,7 +77,7 @@ func TestTransportParsesAPIError(t *testing.T) {
 		w.Header().Set(headerRetryAfter, "1")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, err := w.Write([]byte(`{"code":"rate_limit","message":"slow down","detail":{"limit":60}}`))
-		require.NoError(t, err)
+		assert.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -89,14 +89,16 @@ func TestTransportParsesAPIError(t *testing.T) {
 	require.Error(t, err)
 
 	var apiErr *Error
-	require.True(t, errors.As(err, &apiErr))
+	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, CodeRateLimit, apiErr.Code)
 	require.Equal(t, http.StatusTooManyRequests, apiErr.HTTPStatus)
 	require.Equal(t, "req_123", apiErr.RequestID)
 	require.Equal(t, "slow down", apiErr.Message)
 	require.NotNil(t, apiErr.RetryAfter)
 	require.Equal(t, time.Second, *apiErr.RetryAfter)
-	require.Equal(t, float64(60), apiErr.Detail["limit"])
+	limit, ok := apiErr.Detail["limit"].(float64)
+	require.True(t, ok)
+	require.InEpsilon(t, 60.0, limit, 0.0001)
 }
 
 func testConfig(baseURL string) config {

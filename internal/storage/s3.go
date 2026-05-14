@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/credentials"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/presign"
 
 	appconfig "github.com/mohitsharma-in/socialpublish/internal/config"
 )
@@ -21,7 +20,7 @@ import (
 type S3Storage struct {
 	cfg       appconfig.S3Config
 	client    *s3.Client
-	presigner *presign.PresignClient
+	presigner *s3.PresignClient
 }
 
 // NewS3 creates S3-compatible object storage.
@@ -43,14 +42,6 @@ func NewS3(ctx context.Context, cfg appconfig.S3Config) (*S3Storage, error) {
 		))
 	}
 
-	if cfg.Endpoint != "" {
-		loaderOptions = append(loaderOptions, config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-			func(service, region string, _ ...interface{}) (aws.Endpoint, error) {
-				return aws.Endpoint{URL: strings.TrimRight(cfg.Endpoint, "/"), SigningRegion: cfg.Region}, nil
-			},
-		)))
-	}
-
 	awsCfg, err := config.LoadDefaultConfig(ctx, loaderOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
@@ -58,16 +49,12 @@ func NewS3(ctx context.Context, cfg appconfig.S3Config) (*S3Storage, error) {
 
 	clientOptions := func(o *s3.Options) {
 		if cfg.Endpoint != "" {
-			o.EndpointResolver = aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, _ ...interface{}) (aws.Endpoint, error) {
-					return aws.Endpoint{URL: strings.TrimRight(cfg.Endpoint, "/"), SigningRegion: cfg.Region}, nil
-				},
-			)
+			o.BaseEndpoint = aws.String(strings.TrimRight(cfg.Endpoint, "/"))
 		}
 	}
 
 	client := s3.NewFromConfig(awsCfg, clientOptions)
-	return &S3Storage{cfg: cfg, client: client, presigner: presign.NewPresignClient(client)}, nil
+	return &S3Storage{cfg: cfg, client: client, presigner: s3.NewPresignClient(client)}, nil
 }
 
 // PresignUpload returns a direct upload URL and required headers.
@@ -82,7 +69,7 @@ func (s *S3Storage) PresignUpload(ctx context.Context, key string, contentType s
 		ContentType: aws.String(contentType),
 	}
 
-	req, err := s.presigner.PresignPutObject(ctx, params, presign.WithExpires(15*time.Minute))
+	req, err := s.presigner.PresignPutObject(ctx, params, s3.WithPresignExpires(15*time.Minute))
 	if err != nil {
 		return "", nil, fmt.Errorf("presign upload: %w", err)
 	}
