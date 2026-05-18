@@ -1,0 +1,93 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push server image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/mohitsharma-in/socialpublish:server-${{ github.sha }}
+          target: server
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/mohitsharma-in/socialpublish:worker-${{ github.sha }}
+          target: worker
+
+      - name: Build and push migrate image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/mohitsharma-in/socialpublish:migrate-${{ github.sha }}
+          target: migrate
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubeconfig
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          echo "$KUBE_CONFIG_DATA" | base64 --decode > $HOME/.kube/config
+
+      - name: Apply kustomize manifests
+        run: |
+          kubectl apply -k deploy/k8s
+
+      - name: Update API image
+        run: |
+          kubectl set image deployment/socialpublish-api api=ghcr.io/mohitsharma-in/socialpublish:server-${{ github.sha }} -n socialpublish
+
+      - name: Update Worker image
+        run: |
+          kubectl set image deployment/socialpublish-worker worker=ghcr.io/mohitsharma-in/socialpublish:worker-${{ github.sha }} -n socialpublish
+
+      - name: Run migrations job
+        run: |
+          kubectl -n socialpublish delete job socialpublish-migrate --ignore-not-found
+          sed "s|ghcr.io/mohitsharma-in/socialpublish:migrate-latest|ghcr.io/mohitsharma-in/socialpublish:migrate-${{ github.sha }}|g" deploy/k8s/migrate-job.yaml | kubectl apply -f -
+
+      - name: Wait for API rollout
+        run: kubectl rollout status deployment/socialpublish-api -n socialpublish --timeout=120s
+
+      - name: Wait for Worker rollout
+        run: kubectl rollout status deployment/socialpublish-worker -n socialpublish --timeout=120s
