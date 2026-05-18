@@ -9,6 +9,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"github.com/mohitsharma-in/socialpublish/internal/platform"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
 	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
 
@@ -24,11 +25,12 @@ type publishHandler struct {
 	tokens   store.TokenStore
 	adapters platform.Registry
 	webhooks store.WebhookStore
+	q        queue.Queue
 }
 
 // NewPublishHandler creates a publish task handler.
-func NewPublishHandler(posts store.PostStore, accounts store.AccountStore, tokens store.TokenStore, adapters platform.Registry, webhooks store.WebhookStore) asynq.Handler {
-	return &publishHandler{posts: posts, accounts: accounts, tokens: tokens, adapters: adapters, webhooks: webhooks}
+func NewPublishHandler(posts store.PostStore, accounts store.AccountStore, tokens store.TokenStore, adapters platform.Registry, webhooks store.WebhookStore, q queue.Queue) asynq.Handler {
+	return &publishHandler{posts: posts, accounts: accounts, tokens: tokens, adapters: adapters, webhooks: webhooks, q: q}
 }
 
 func (h *publishHandler) ProcessTask(ctx context.Context, task *asynq.Task) error {
@@ -80,5 +82,9 @@ func (h *publishHandler) ProcessTask(ctx context.Context, task *asynq.Task) erro
 	}); err != nil {
 		slog.Error("failed to enqueue publish webhook", "target_id", payload.TargetID, "err", err)
 	}
+
+	payloadBytes, _ := json.Marshal(WebhookPayload{WorkspaceID: account.WorkspaceID})
+	_ = h.q.Enqueue(ctx, TaskWebhookDeliver, payloadBytes)
+
 	return nil
 }

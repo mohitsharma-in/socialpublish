@@ -9,6 +9,7 @@ import (
 
 	"github.com/mohitsharma-in/socialpublish/internal/ffmpeg"
 	"github.com/mohitsharma-in/socialpublish/internal/platform"
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
 	"github.com/mohitsharma-in/socialpublish/internal/storage"
 	"github.com/mohitsharma-in/socialpublish/internal/store"
 )
@@ -48,9 +49,10 @@ func New(redisAddr string, stores store.Stores, obj storage.ObjectStorage, adapt
 		},
 	)
 
+	q := queue.NewAsynq(redisAddr)
 	mux := asynq.NewServeMux()
 	mux.Handle(TaskTranscode, NewTranscodeHandler(stores.Media, obj, ff))
-	mux.Handle(TaskPublish, NewPublishHandler(stores.Posts, stores.Accounts, stores.Tokens, adapters, stores.Webhooks))
+	mux.Handle(TaskPublish, NewPublishHandler(stores.Posts, stores.Accounts, stores.Tokens, adapters, stores.Webhooks, q))
 	mux.Handle(TaskTokenRefresh, NewTokenRefreshHandler(stores.Accounts, stores.Tokens, adapters))
 	mux.Handle(TaskAnalyticsPoll, NewAnalyticsHandler(stores.Analytics, stores.Accounts, stores.Tokens, adapters))
 	mux.Handle(TaskWebhookDeliver, NewWebhookDeliverHandler(stores.Webhooks, stores.Tokens))

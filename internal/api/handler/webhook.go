@@ -3,12 +3,14 @@ package handler
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/mohitsharma-in/socialpublish/internal/queue"
 	"github.com/mohitsharma-in/socialpublish/internal/store"
 	"github.com/mohitsharma-in/socialpublish/internal/tenant"
 )
@@ -17,11 +19,12 @@ import (
 type Webhook struct {
 	webhooks store.WebhookStore
 	tokens   store.TokenStore
+	q        queue.Queue
 }
 
 // NewWebhook creates a Webhook handler.
-func NewWebhook(webhooks store.WebhookStore, tokens store.TokenStore) *Webhook {
-	return &Webhook{webhooks: webhooks, tokens: tokens}
+func NewWebhook(webhooks store.WebhookStore, tokens store.TokenStore, q queue.Queue) *Webhook {
+	return &Webhook{webhooks: webhooks, tokens: tokens, q: q}
 }
 
 type webhookCreateRequest struct {
@@ -145,5 +148,9 @@ func (h *Webhook) Test(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
+
+	payloadBytes, _ := json.Marshal(map[string]string{"workspace_id": ws.ID})
+	_ = h.q.Enqueue(r.Context(), "webhook:deliver", payloadBytes)
+
 	w.WriteHeader(http.StatusAccepted)
 }

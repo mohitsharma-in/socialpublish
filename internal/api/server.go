@@ -98,7 +98,7 @@ func New(cfg Config, stores store.Stores, q queue.Queue, obj storage.ObjectStora
 		})
 
 		r.Route("/webhooks", func(r chi.Router) {
-			wh := handler.NewWebhook(stores.Webhooks, stores.Tokens)
+			wh := handler.NewWebhook(stores.Webhooks, stores.Tokens, q)
 			r.Post("/", wh.Create)
 			r.Get("/", wh.List)
 			r.Delete("/{webhookID}", wh.Delete)

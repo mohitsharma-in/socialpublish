@@ -1,0 +1,31 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - gofmt
+    - goimports
+    - misspell
+    - bodyclose
+    - contextcheck
+    - noctx
+    - testifylint
+    - godot
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+  godot:
+    scope: all
+
+issues:
+  exclude-rules:
+    - path: "cmd/"
+      linters: [errcheck]
+      text: "defer.*Close"
+
+run:
+  timeout: 5m
